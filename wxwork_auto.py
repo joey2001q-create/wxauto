@@ -954,7 +954,22 @@ class WXWorkAutomation:
         self.click(int(lx), int(ly))
         time.sleep(1.5)
 
-        # 5. 判断当前状态
+        # 5.1 检查是否出现"用户不存在"提示
+        not_exist_hints = ["该用户不存在", "无法找到该用户", "用户不存在"]
+        for hint in not_exist_hints:
+            if self.find_text(hint):
+                # 点击确定关闭提示
+                try:
+                    self.click_text("确定")
+                    time.sleep(0.3)
+                except:
+                    pass
+                self.press_escape()
+                time.sleep(0.3)
+                self.press_escape()
+                return {"status": "phone_not_exist", "detail": f"手机号 {phone} 不存在或无法找到"}
+
+        # 5.2 判断当前状态
         # 检查是否已是好友（出现"发消息"按钮而非"添加"）
         if self.find_text_safe("发消息", confirm_times=1, require_stable=False):
             self.press_escape()
