@@ -1,0 +1,45 @@
+{
+  "exists": [
+    "16670239176",
+    "13682416565"
+  ],
+  "not_exist": [
+    "13611111111",
+    "13611111122"
+  ],
+  "already_friend": [],
+  "failed": [],
+  "details": [
+    {
+      "status": "success",
+      "detail": "已向 16670239176 发送添加邀请",
+      "phone": "16670239176",
+      "index": 1
+    },
+    {
+      "status": "phone_not_exist",
+      "detail": "手机号 13611111111 不存在或无法找到",
+      "phone": "13611111111",
+      "index": 2
+    },
+    {
+      "status": "phone_not_exist",
+      "detail": "手机号 13611111122 不存在或无法找到",
+      "phone": "13611111122",
+      "index": 3
+    },
+    {
+      "status": "success",
+      "detail": "已向 13682416565 发送添加邀请",
+      "phone": "13682416565",
+      "index": 4
+    }
+  ],
+  "summary": {
+    "total": 4,
+    "exists": 2,
+    "not_exist": 2,
+    "already_friend": 0,
+    "failed": 0
+  }
+}

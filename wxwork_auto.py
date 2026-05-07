@@ -932,8 +932,9 @@ class WXWorkAutomation:
         self.type_text(phone)
         time.sleep(2.0)  # 增加等待时间，让搜索结果出现
 
-        # 4. 查找搜索结果 — 优先找"网络查找"，其次找手机号本身（使用安全查找）
-        lookup_item = self.find_text_safe("网络查找", confirm_times=2)
+        # 4. 查找搜索结果 — 优先找"网络查找"，其次找手机号本身
+        # 使用普通查找，避免多次扫描不稳定
+        lookup_item = self.find_text("网络查找")
         if not lookup_item:
             # 尝试查找手机号（数字允许）
             items = self.ocr_scan()
@@ -1090,3 +1091,90 @@ class WXWorkAutomation:
             if interval > 0:
                 time.sleep(interval)
         return results
+
+    def test_phones_batch(self, phones, verify_msg=None, interval=3):
+        """批量测试手机号，分类结果
+
+        Args:
+            phones: 手机号列表
+            verify_msg: 验证消息
+            interval: 每次测试间隔(秒)
+
+        Returns:
+            dict: {
+                "exists": [],      # 存在的手机号
+                "not_exist": [],   # 不存在的手机号
+                "already_friend": [],  # 已是好友
+                "failed": [],      # 其他失败
+                "details": [],     # 详细结果
+                "summary": {}      # 统计信息
+            }
+        """
+        results = {
+            "exists": [],
+            "not_exist": [],
+            "already_friend": [],
+            "failed": [],
+            "details": []
+        }
+
+        total = len(phones)
+        for i, phone in enumerate(phones, 1):
+            logger.info(f"[{i}/{total}] 测试手机号: {phone}")
+            print(f"[{i}/{total}] 测试手机号: {phone}")
+
+            # 执行添加
+            result = self.add_contact_by_phone(phone, verify_msg)
+            result["phone"] = phone
+            result["index"] = i
+
+            # 分类结果
+            status = result["status"]
+            if status == "success":
+                results["exists"].append(phone)
+                logger.info(f"  [OK] 存在，添加成功")
+                print(f"  [OK] 存在，添加成功")
+            elif status == "phone_not_exist":
+                results["not_exist"].append(phone)
+                logger.info(f"  [NO] 不存在")
+                print(f"  [NO] 不存在")
+            elif status == "already_friend":
+                results["already_friend"].append(phone)
+                logger.info(f"  [FRIEND] 已是好友")
+                print(f"  [FRIEND] 已是好友")
+            else:
+                results["failed"].append(phone)
+                logger.warning(f"  [FAIL] 失败: {result['detail']}")
+                print(f"  [FAIL] 失败: {result['detail']}")
+
+            results["details"].append(result)
+
+            # 间隔
+            if i < total and interval > 0:
+                time.sleep(interval)
+
+        # 统计
+        results["summary"] = {
+            "total": total,
+            "exists": len(results["exists"]),
+            "not_exist": len(results["not_exist"]),
+            "already_friend": len(results["already_friend"]),
+            "failed": len(results["failed"])
+        }
+
+        return results
+
+    def save_not_exist_phones(self, results, filepath="not_exist_phones.txt"):
+        """保存不存在的手机号到文件
+
+        Args:
+            results: test_phones_batch 返回的结果
+            filepath: 保存路径
+        """
+        not_exist = results.get("not_exist", [])
+        with open(filepath, "w", encoding="utf-8") as f:
+            for phone in not_exist:
+                f.write(phone + "\n")
+        logger.info(f"已保存 {len(not_exist)} 个不存在的手机号到 {filepath}")
+        print(f"已保存 {len(not_exist)} 个不存在的手机号到 {filepath}")
+        return filepath
