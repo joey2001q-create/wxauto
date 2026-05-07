@@ -966,7 +966,6 @@ class WXWorkAutomation:
                     pass
                 self.press_escape()
                 time.sleep(0.3)
-                self.press_escape()
                 return {"status": "phone_not_exist", "detail": f"手机号 {phone} 不存在或无法找到"}
 
         # 5.2 判断当前状态
@@ -974,7 +973,6 @@ class WXWorkAutomation:
         if self.find_text_safe("发消息", confirm_times=1, require_stable=False):
             self.press_escape()
             time.sleep(0.3)
-            self.press_escape()
             return {"status": "already_friend", "detail": f"{phone} 已是好友"}
 
         # 检查是否有"添加"按钮（使用安全查找）
@@ -982,14 +980,12 @@ class WXWorkAutomation:
         if not add_item:
             self.press_escape()
             time.sleep(0.3)
-            self.press_escape()
             return {"status": "failed", "detail": "未找到'添加'按钮，可能无法添加该联系人"}
 
         # 验证"添加"按钮位置合理性（应在右侧联系人详情区域）
         if not self._is_position_reasonable(add_item["window_pos"], {"x_min": 200, "y_min": 150}):
             self.press_escape()
             time.sleep(0.3)
-            self.press_escape()
             return {"status": "failed", "detail": "'添加'按钮位置异常，可能识别错误"}
 
         # 6. 点击"添加"按钮，弹出"发送添加邀请"弹窗
@@ -1002,7 +998,6 @@ class WXWorkAutomation:
         if not self.verify_action_result("发送添加邀请", timeout=3, should_exist=True):
             self.press_escape()
             time.sleep(0.3)
-            self.press_escape()
             return {"status": "failed", "detail": "点击添加后未出现弹窗"}
 
         # 8. 点击输入框并输入邀请信息（使用多重检查机制）
@@ -1014,7 +1009,6 @@ class WXWorkAutomation:
         except RuntimeError as e:
             self.press_escape()
             time.sleep(0.3)
-            self.press_escape()
             return {"status": "failed", "detail": f"定位输入框失败: {str(e)}"}
 
         # 清空输入框原有内容
