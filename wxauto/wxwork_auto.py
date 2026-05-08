@@ -354,7 +354,7 @@ class WXWorkAutomation:
         logger.info(f"安全点击 '{target}' at ({sx:.0f}, {sy:.0f})，置信度{item.get('confidence', 0):.2f}")
 
         # 执行点击
-        self.click(int(sx), int(sy), ensure_foreground=True)
+        self.click(int(sx), int(sy))
 
         # 点击后验证（可选）
         if post_verify:
@@ -599,6 +599,68 @@ class WXWorkAutomation:
             "confidence": 0.85,
             "size": (w, h),
         }
+
+    def _verify_blue_button(self, screenshot_path, window_pos, button_size=(80, 40)):
+        """验证按钮是否为蓝色（企业微信发送按钮特征）
+
+        通过检查按钮区域的蓝色像素比例来判断
+
+        Args:
+            screenshot_path: 截图路径
+            window_pos: 按钮在窗口中的位置 (x, y)
+            button_size: 按钮预估大小 (宽, 高)
+
+        Returns:
+            bool: 是否为蓝色按钮
+        """
+        if not HAS_OPENCV:
+            return True  # 没有OpenCV时默认通过
+
+        try:
+            screenshot = cv2.imread(screenshot_path)
+            if screenshot is None:
+                return True
+
+            x, y = int(window_pos[0]), int(window_pos[1])
+            w, h = button_size
+
+            # 确保在截图范围内
+            img_h, img_w = screenshot.shape[:2]
+            x1 = max(0, x - w // 2)
+            y1 = max(0, y - h // 2)
+            x2 = min(img_w, x + w // 2)
+            y2 = min(img_h, y + h // 2)
+
+            if x2 <= x1 or y2 <= y1:
+                return True
+
+            # 截取按钮区域
+            roi = screenshot[y1:y2, x1:x2]
+
+            # 转换为HSV颜色空间，便于颜色检测
+            hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+
+            # 定义蓝色范围（企业微信发送按钮的蓝色）
+            # 蓝色在HSV中：H约100-130
+            lower_blue = np.array([100, 80, 80])
+            upper_blue = np.array([130, 255, 255])
+
+            # 创建蓝色掩码
+            blue_mask = cv2.inRange(hsv, lower_blue, upper_blue)
+
+            # 计算蓝色像素比例
+            blue_ratio = np.sum(blue_mask > 0) / (blue_mask.size)
+
+            # 蓝色比例超过30%认为是蓝色按钮
+            is_blue = blue_ratio > 0.3
+
+            logger.debug(f"蓝色按钮验证: 位置({x}, {y}), 蓝色比例{blue_ratio:.2%}, 结果{is_blue}")
+
+            return is_blue
+
+        except Exception as e:
+            logger.warning(f"蓝色按钮验证失败: {e}")
+            return True  # 验证失败时默认通过
 
     def locate_input_box_multi_check(self, phone, verify_msg):
         """多重检查机制定位输入框
@@ -862,7 +924,7 @@ class WXWorkAutomation:
         contact = self.find_text(contact_name)
         if not contact:
             raise RuntimeError(f"未找到联系人: {contact_name}")
-        self.click(int(contact["screen_pos"][0]), int(contact["screen_pos"][1]), ensure_foreground=True)
+        self.click(int(contact["screen_pos"][0]), int(contact["screen_pos"][1]))
         time.sleep(1)
 
         # 3. 点击消息输入框
@@ -907,12 +969,9 @@ class WXWorkAutomation:
         Returns:
             dict: {"status": "success"|"already_friend"|"not_found"|"failed", "detail": str}
         """
-        """
-        # 1. 确保企业微信窗口在前台
-        self.bring_to_front()
-        time.sleep(0.5)
-
-        # 回到消息页面
+        # 1. 确保在前台并回到消息页面（不强制bring_to_front，避免黑屏）
+        # self.bring_to_front()  # 暂时禁用，可能导致窗口黑屏
+        time.sleep(0.3)
         try:
             self.click_text("消息")
             time.sleep(0.5)
@@ -924,7 +983,7 @@ class WXWorkAutomation:
         if not search_item:
             return {"status": "failed", "detail": "未找到搜索框"}
         sx, sy = search_item["screen_pos"]
-        self.click(int(sx), int(sy), ensure_foreground=True)
+        self.click(int(sx), int(sy))
         time.sleep(0.5)
 
         # 3. 清空搜索框并输入手机号
@@ -935,9 +994,8 @@ class WXWorkAutomation:
         self.type_text(phone)
         time.sleep(2.0)  # 增加等待时间，让搜索结果出现
 
-        # 4. 查找搜索结果 — 优先找"网络查找"，其次找手机号本身
-        # 使用普通查找，避免多次扫描不稳定
-        lookup_item = self.find_text("网络查找")
+        # 4. 查找搜索结果 — 优先找"网络查找"，其次找手机号本身（使用安全查找）
+        lookup_item = self.find_text_safe("网络查找", confirm_times=2)
         if not lookup_item:
             # 尝试查找手机号（数字允许）
             items = self.ocr_scan()
@@ -955,19 +1013,8 @@ class WXWorkAutomation:
             return {"status": "failed", "detail": "搜索结果位置异常，可能识别错误"}
 
         lx, ly = lookup_item["screen_pos"]
-        self.click(int(lx), int(ly), ensure_foreground=True)
-        time.sleep(2.0)  # 增加等待时间，让右侧联系人详情加载
-
-        # 【修复】点击右侧联系人详情区域，确保加载完整信息
-        # 获取窗口尺寸，点击右侧区域（联系人详情通常在右侧）
-        rect = self.get_window_rect()
-        window_width = rect[2] - rect[0]
-        window_height = rect[3] - rect[1]
-        # 点击窗口右侧中间位置（联系人详情区域）
-        right_x = rect[0] + int(window_width * 0.75)
-        right_y = rect[1] + int(window_height * 0.5)
-        self.click(right_x, right_y, ensure_foreground=True)
-        time.sleep(1.0)  # 等待右侧详情刷新
+        self.click(int(lx), int(ly))
+        time.sleep(1.5)
 
         # 5.1 检查是否出现"用户不存在"提示
         not_exist_hints = ["该用户不存在", "无法找到该用户", "用户不存在"]
@@ -981,95 +1028,55 @@ class WXWorkAutomation:
                     pass
                 self.press_escape()
                 time.sleep(0.3)
+                self.press_escape()
                 return {"status": "phone_not_exist", "detail": f"手机号 {phone} 不存在或无法找到"}
 
-        # 5.2 检查是否出现"添加频繁"提示
-        frequent_hints = ["添加好友过于频繁", "提升添加频率", "过于频繁"]
-        for hint in frequent_hints:
-            if self.find_text(hint):
-                # 点击确定关闭提示
-                try:
-                    self.click_text("确定")
-                    time.sleep(0.3)
-                except:
-                    pass
-                self.press_escape()
-                time.sleep(0.3)
-                return {"status": "rate_limited", "detail": "添加好友过于频繁，请稍后再试"}
-
-        # 5.3 判断当前状态
+        # 5.2 判断当前状态
         # 检查是否已是好友（出现"发消息"按钮而非"添加"）
         if self.find_text_safe("发消息", confirm_times=1, require_stable=False):
             self.press_escape()
             time.sleep(0.3)
+            self.press_escape()
             return {"status": "already_friend", "detail": f"{phone} 已是好友"}
 
         # 检查是否有"添加"按钮（使用安全查找）
-        # 【调试】保存截图查看 OCR 识别结果
-        debug_path = os.path.join(tempfile.gettempdir(), f"debug_add_btn_{phone}.png")
-        self.capture_screenshot(debug_path)
-        logger.info(f"[调试] 已保存截图: {debug_path}")
-
-        # 【调试】输出所有 OCR 识别结果
-        all_items = self.ocr_scan()
-        logger.info(f"[调试] OCR 识别到 {len(all_items)} 个文本项:")
-        for item in all_items:
-            logger.info(f"  - '{item['text']}' at ({item['window_pos']})")
-
         add_item = self.find_text_safe("添加", confirm_times=2)
         if not add_item:
             self.press_escape()
             time.sleep(0.3)
+            self.press_escape()
             return {"status": "failed", "detail": "未找到'添加'按钮，可能无法添加该联系人"}
 
         # 验证"添加"按钮位置合理性（应在右侧联系人详情区域）
         if not self._is_position_reasonable(add_item["window_pos"], {"x_min": 200, "y_min": 150}):
             self.press_escape()
             time.sleep(0.3)
+            self.press_escape()
             return {"status": "failed", "detail": "'添加'按钮位置异常，可能识别错误"}
 
         # 6. 点击"添加"按钮，弹出"发送添加邀请"弹窗
         ax, ay = add_item["screen_pos"]
         logger.info(f"点击'添加'按钮 at ({ax:.0f}, {ay:.0f})")
-        self.click(int(ax), int(ay), ensure_foreground=True)
-        time.sleep(1.5)  # 等待弹窗出现
-
-        # 【修复】确保窗口在前台，有时弹窗会被其他窗口遮挡
-        self.bring_to_front()
-        time.sleep(0.5)
-
-        # 6.1 【关键修复】验证"添加"按钮是否消失（确认点击成功）
-        add_still_visible = False
-        for _ in range(3):  # 多次检查
-            if self.find_text_safe("添加", confirm_times=1, require_stable=False):
-                add_still_visible = True
-                logger.warning("'添加'按钮仍然存在，可能未点击成功")
-                break
-            time.sleep(0.2)
-
-        if add_still_visible:
-            # 再次尝试点击"添加"按钮
-            logger.info("再次尝试点击'添加'按钮")
-            self.click(int(ax), int(ay), ensure_foreground=True)
-            time.sleep(1.5)
-            self.bring_to_front()
-            time.sleep(0.5)
+        self.click(int(ax), int(ay))
+        time.sleep(1)
 
         # 7. 等待弹窗出现，确认弹窗标题"发送添加邀请"
         if not self.verify_action_result("发送添加邀请", timeout=3, should_exist=True):
             self.press_escape()
             time.sleep(0.3)
+            self.press_escape()
             return {"status": "failed", "detail": "点击添加后未出现弹窗"}
 
         # 8. 点击输入框并输入邀请信息（使用多重检查机制）
         try:
             input_x, input_y, method_used = self.locate_input_box_multi_check(phone, verify_msg)
             logger.info(f"使用 {method_used} 定位输入框，点击 ({input_x:.0f}, {input_y:.0f})")
-            self.click(int(input_x), int(input_y), ensure_foreground=True)
+            self.click(int(input_x), int(input_y))
             time.sleep(0.3)
         except RuntimeError as e:
             self.press_escape()
             time.sleep(0.3)
+            self.press_escape()
             return {"status": "failed", "detail": f"定位输入框失败: {str(e)}"}
 
         # 清空输入框原有内容
@@ -1095,40 +1102,31 @@ class WXWorkAutomation:
                 logger.warning("输入验证失败，但继续执行")
                 # 不返回错误，继续尝试点击发送
 
-        # 10. 点击"发送"按钮（找弹窗内下方的"发送"，不是标题）
-        # 弹窗内有两个"发送"相关文字：标题"发送添加邀请"和按钮"发送"
-        # 按钮在下方，y 坐标更大
+        # 10. 点击"发送"按钮
+        # 策略：先找到弹窗标题"发送添加邀请"，然后在标题下方找"发送"按钮
+        popup_title = self.find_text_safe("发送添加邀请", confirm_times=1, require_stable=False)
+        if not popup_title:
+            return {"status": "failed", "detail": "未找到弹窗标题，无法定位发送按钮"}
 
-        # 【测试模式】只对测试手机号执行真实发送
-        TEST_PHONE = "16670239176"
-        if phone != TEST_PHONE:
-            logger.info(f"[测试模式] 非测试手机号 {phone}，跳过发送")
-            # 关闭弹窗
-            self.press_escape()
-            time.sleep(0.3)
-            self.press_escape()
-            time.sleep(0.3)
-            return {"status": "success", "detail": f"[测试模式] 已填写验证消息，未发送给 {phone}"}
+        title_y = popup_title["window_pos"][1]
 
-        # 测试手机号：执行真实发送流程
-        logger.info(f"[测试模式] 测试手机号 {TEST_PHONE}，执行真实发送")
+        # 获取所有"发送"文字
         send_items = self.find_all_text("发送")
-        if len(send_items) >= 2:
+
+        # 筛选：在标题下方（y > title_y + 50），且文字内容正好只是"发送"
+        # 排除标题"发送添加邀请"（包含"发送"但长度更长）
+        valid_send_items = [
+            item for item in send_items
+            if item["window_pos"][1] > title_y + 50 and item["text"].strip() == "发送"
+        ]
+
+        if len(valid_send_items) >= 1:
             # 按 y 坐标排序，找最下方的（y 最大的）
-            send_items.sort(key=lambda x: x["window_pos"][1])
-            send_btn = send_items[-1]  # 最后一个就是 y 最大的
+            valid_send_items.sort(key=lambda x: x["window_pos"][1])
+            send_btn = valid_send_items[-1]
             bx, by = send_btn["screen_pos"]
-            self.click(int(bx), int(by), ensure_foreground=True)
+            self.click(int(bx), int(by))
             time.sleep(1)
-        elif len(send_items) == 1:
-            # 只有一个，检查 y 坐标是否在下方（> 300）
-            if send_items[0]["window_pos"][1] > 300:
-                send_btn = send_items[0]
-                bx, by = send_btn["screen_pos"]
-                self.click(int(bx), int(by), ensure_foreground=True)
-                time.sleep(1)
-            else:
-                return {"status": "failed", "detail": "找到的发送文字位置异常，可能是标题而非按钮"}
         else:
             return {"status": "failed", "detail": "未找到发送按钮"}
 
@@ -1165,90 +1163,3 @@ class WXWorkAutomation:
             if interval > 0:
                 time.sleep(interval)
         return results
-
-    def test_phones_batch(self, phones, verify_msg=None, interval=3):
-        """Pi liang ce shou ji hao, fen lei jie guo
-
-        Args:
-            phones: 手机号列表
-            verify_msg: 验证消息
-            interval: 每次测试间隔(秒)
-
-        Returns:
-            dict: {
-                "exists": [],      # 存在的手机号
-                "not_exist": [],   # 不存在的手机号
-                "already_friend": [],  # 已是好友
-                "failed": [],      # 其他失败
-                "details": [],     # 详细结果
-                "summary": {}      # 统计信息
-            }
-        """
-        results = {
-            "exists": [],
-            "not_exist": [],
-            "already_friend": [],
-            "failed": [],
-            "details": []
-        }
-
-        total = len(phones)
-        for i, phone in enumerate(phones, 1):
-            logger.info(f"[{i}/{total}] 测试手机号: {phone}")
-            print(f"[{i}/{total}] 测试手机号: {phone}")
-
-            # 执行添加
-            result = self.add_contact_by_phone(phone, verify_msg)
-            result["phone"] = phone
-            result["index"] = i
-
-            # 分类结果
-            status = result["status"]
-            if status == "success":
-                results["exists"].append(phone)
-                logger.info(f"  [OK] 存在，添加成功")
-                print(f"  [OK] 存在，添加成功")
-            elif status == "phone_not_exist":
-                results["not_exist"].append(phone)
-                logger.info(f"  [NO] 不存在")
-                print(f"  [NO] 不存在")
-            elif status == "already_friend":
-                results["already_friend"].append(phone)
-                logger.info(f"  [FRIEND] 已是好友")
-                print(f"  [FRIEND] 已是好友")
-            else:
-                results["failed"].append(phone)
-                logger.warning(f"  [FAIL] 失败: {result['detail']}")
-                print(f"  [FAIL] 失败: {result['detail']}")
-
-            results["details"].append(result)
-
-            # 间隔
-            if i < total and interval > 0:
-                time.sleep(interval)
-
-        # 统计
-        results["summary"] = {
-            "total": total,
-            "exists": len(results["exists"]),
-            "not_exist": len(results["not_exist"]),
-            "already_friend": len(results["already_friend"]),
-            "failed": len(results["failed"])
-        }
-
-        return results
-
-    def save_not_exist_phones(self, results, filepath="not_exist_phones.txt"):
-        """保存不存在的手机号到文件
-
-        Args:
-            results: test_phones_batch 返回的结果
-            filepath: 保存路径
-        """
-        not_exist = results.get("not_exist", [])
-        with open(filepath, "w", encoding="utf-8") as f:
-            for phone in not_exist:
-                f.write(phone + "\n")
-        logger.info(f"已保存 {len(not_exist)} 个不存在的手机号到 {filepath}")
-        print(f"已保存 {len(not_exist)} 个不存在的手机号到 {filepath}")
-        return filepath
