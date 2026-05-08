@@ -969,7 +969,21 @@ class WXWorkAutomation:
                 time.sleep(0.3)
                 return {"status": "phone_not_exist", "detail": f"手机号 {phone} 不存在或无法找到"}
 
-        # 5.2 判断当前状态
+        # 5.2 检查是否出现"添加频繁"提示
+        frequent_hints = ["添加好友过于频繁", "提升添加频率", "过于频繁"]
+        for hint in frequent_hints:
+            if self.find_text(hint):
+                # 点击确定关闭提示
+                try:
+                    self.click_text("确定")
+                    time.sleep(0.3)
+                except:
+                    pass
+                self.press_escape()
+                time.sleep(0.3)
+                return {"status": "rate_limited", "detail": "添加好友过于频繁，请稍后再试"}
+
+        # 5.3 判断当前状态
         # 检查是否已是好友（出现"发消息"按钮而非"添加"）
         if self.find_text_safe("发消息", confirm_times=1, require_stable=False):
             self.press_escape()
