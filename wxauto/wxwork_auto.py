@@ -991,6 +991,17 @@ class WXWorkAutomation:
             return {"status": "already_friend", "detail": f"{phone} 已是好友"}
 
         # 检查是否有"添加"按钮（使用安全查找）
+        # 【调试】保存截图查看 OCR 识别结果
+        debug_path = os.path.join(tempfile.gettempdir(), f"debug_add_btn_{phone}.png")
+        self.capture_screenshot(debug_path)
+        logger.info(f"[调试] 已保存截图: {debug_path}")
+
+        # 【调试】输出所有 OCR 识别结果
+        all_items = self.ocr_scan()
+        logger.info(f"[调试] OCR 识别到 {len(all_items)} 个文本项:")
+        for item in all_items:
+            logger.info(f"  - '{item['text']}' at ({item['window_pos']})")
+
         add_item = self.find_text_safe("添加", confirm_times=2)
         if not add_item:
             self.press_escape()
