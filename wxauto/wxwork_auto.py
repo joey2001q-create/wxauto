@@ -354,7 +354,7 @@ class WXWorkAutomation:
         logger.info(f"安全点击 '{target}' at ({sx:.0f}, {sy:.0f})，置信度{item.get('confidence', 0):.2f}")
 
         # 执行点击
-        self.click(int(sx), int(sy))
+        self.click(int(sx), int(sy), ensure_foreground=True)
 
         # 点击后验证（可选）
         if post_verify:
@@ -862,7 +862,7 @@ class WXWorkAutomation:
         contact = self.find_text(contact_name)
         if not contact:
             raise RuntimeError(f"未找到联系人: {contact_name}")
-        self.click(int(contact["screen_pos"][0]), int(contact["screen_pos"][1]))
+        self.click(int(contact["screen_pos"][0]), int(contact["screen_pos"][1]), ensure_foreground=True)
         time.sleep(1)
 
         # 3. 点击消息输入框
@@ -924,7 +924,7 @@ class WXWorkAutomation:
         if not search_item:
             return {"status": "failed", "detail": "未找到搜索框"}
         sx, sy = search_item["screen_pos"]
-        self.click(int(sx), int(sy))
+        self.click(int(sx), int(sy), ensure_foreground=True)
         time.sleep(0.5)
 
         # 3. 清空搜索框并输入手机号
@@ -955,7 +955,7 @@ class WXWorkAutomation:
             return {"status": "failed", "detail": "搜索结果位置异常，可能识别错误"}
 
         lx, ly = lookup_item["screen_pos"]
-        self.click(int(lx), int(ly))
+        self.click(int(lx), int(ly), ensure_foreground=True)
         time.sleep(2.0)  # 增加等待时间，让右侧联系人详情加载
 
         # 【修复】点击右侧联系人详情区域，确保加载完整信息
@@ -966,7 +966,7 @@ class WXWorkAutomation:
         # 点击窗口右侧中间位置（联系人详情区域）
         right_x = rect[0] + int(window_width * 0.75)
         right_y = rect[1] + int(window_height * 0.5)
-        self.click(right_x, right_y)
+        self.click(right_x, right_y, ensure_foreground=True)
         time.sleep(1.0)  # 等待右侧详情刷新
 
         # 5.1 检查是否出现"用户不存在"提示
@@ -1031,16 +1031,29 @@ class WXWorkAutomation:
         # 6. 点击"添加"按钮，弹出"发送添加邀请"弹窗
         ax, ay = add_item["screen_pos"]
         logger.info(f"点击'添加'按钮 at ({ax:.0f}, {ay:.0f})")
-        self.click(int(ax), int(ay))
-        time.sleep(2)  # 增加等待时间，让新弹窗完全覆盖
+        self.click(int(ax), int(ay), ensure_foreground=True)
+        time.sleep(1.5)  # 等待弹窗出现
 
-        # 【修复】点击弹窗标题区域，确保新弹窗在最上层并获得焦点
-        # 新弹窗通常在屏幕中央附近
-        rect = self.get_window_rect()
-        center_x = rect[0] + (rect[2] - rect[0]) // 2
-        center_y = rect[1] + (rect[3] - rect[1]) // 2 - 100  # 偏上一点（标题区域）
-        self.click(center_x, center_y)
+        # 【修复】确保窗口在前台，有时弹窗会被其他窗口遮挡
+        self.bring_to_front()
         time.sleep(0.5)
+
+        # 6.1 【关键修复】验证"添加"按钮是否消失（确认点击成功）
+        add_still_visible = False
+        for _ in range(3):  # 多次检查
+            if self.find_text_safe("添加", confirm_times=1, require_stable=False):
+                add_still_visible = True
+                logger.warning("'添加'按钮仍然存在，可能未点击成功")
+                break
+            time.sleep(0.2)
+
+        if add_still_visible:
+            # 再次尝试点击"添加"按钮
+            logger.info("再次尝试点击'添加'按钮")
+            self.click(int(ax), int(ay), ensure_foreground=True)
+            time.sleep(1.5)
+            self.bring_to_front()
+            time.sleep(0.5)
 
         # 7. 等待弹窗出现，确认弹窗标题"发送添加邀请"
         if not self.verify_action_result("发送添加邀请", timeout=3, should_exist=True):
@@ -1052,7 +1065,7 @@ class WXWorkAutomation:
         try:
             input_x, input_y, method_used = self.locate_input_box_multi_check(phone, verify_msg)
             logger.info(f"使用 {method_used} 定位输入框，点击 ({input_x:.0f}, {input_y:.0f})")
-            self.click(int(input_x), int(input_y))
+            self.click(int(input_x), int(input_y), ensure_foreground=True)
             time.sleep(0.3)
         except RuntimeError as e:
             self.press_escape()
@@ -1105,14 +1118,14 @@ class WXWorkAutomation:
             send_items.sort(key=lambda x: x["window_pos"][1])
             send_btn = send_items[-1]  # 最后一个就是 y 最大的
             bx, by = send_btn["screen_pos"]
-            self.click(int(bx), int(by))
+            self.click(int(bx), int(by), ensure_foreground=True)
             time.sleep(1)
         elif len(send_items) == 1:
             # 只有一个，检查 y 坐标是否在下方（> 300）
             if send_items[0]["window_pos"][1] > 300:
                 send_btn = send_items[0]
                 bx, by = send_btn["screen_pos"]
-                self.click(int(bx), int(by))
+                self.click(int(bx), int(by), ensure_foreground=True)
                 time.sleep(1)
             else:
                 return {"status": "failed", "detail": "找到的发送文字位置异常，可能是标题而非按钮"}
@@ -1154,7 +1167,7 @@ class WXWorkAutomation:
         return results
 
     def test_phones_batch(self, phones, verify_msg=None, interval=3):
-        """批量测试手机号，分类结果
+        """Pi liang ce shou ji hao, fen lei jie guo
 
         Args:
             phones: 手机号列表
