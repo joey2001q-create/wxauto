@@ -1049,20 +1049,52 @@ class WXWorkAutomation:
                 logger.warning("输入验证失败，但继续执行")
                 # 不返回错误，继续尝试点击发送
 
-        # 10. 【测试模式】不点击"发送"按钮，直接返回成功
+        # 10. 点击"发送"按钮（找弹窗内下方的"发送"，不是标题）
         # 弹窗内有两个"发送"相关文字：标题"发送添加邀请"和按钮"发送"
-        # NOTE: 测试模式 - 填写验证消息后关闭弹窗，不实际发送
-        logger.info("[测试模式] 已填写验证消息，关闭弹窗继续下一个")
+        # 按钮在下方，y 坐标更大
 
-        # 关闭弹窗（按 Escape）
+        # 【测试模式】只对测试手机号执行真实发送
+        TEST_PHONE = "16670239176"
+        if phone != TEST_PHONE:
+            logger.info(f"[测试模式] 非测试手机号 {phone}，跳过发送")
+            # 关闭弹窗
+            self.press_escape()
+            time.sleep(0.3)
+            self.press_escape()
+            time.sleep(0.3)
+            return {"status": "success", "detail": f"[测试模式] 已填写验证消息，未发送给 {phone}"}
+
+        # 测试手机号：执行真实发送流程
+        logger.info(f"[测试模式] 测试手机号 {TEST_PHONE}，执行真实发送")
+        send_items = self.find_all_text("发送")
+        if len(send_items) >= 2:
+            # 按 y 坐标排序，找最下方的（y 最大的）
+            send_items.sort(key=lambda x: x["window_pos"][1])
+            send_btn = send_items[-1]  # 最后一个就是 y 最大的
+            bx, by = send_btn["screen_pos"]
+            self.click(int(bx), int(by))
+            time.sleep(1)
+        elif len(send_items) == 1:
+            # 只有一个，检查 y 坐标是否在下方（> 300）
+            if send_items[0]["window_pos"][1] > 300:
+                send_btn = send_items[0]
+                bx, by = send_btn["screen_pos"]
+                self.click(int(bx), int(by))
+                time.sleep(1)
+            else:
+                return {"status": "failed", "detail": "找到的发送文字位置异常，可能是标题而非按钮"}
+        else:
+            return {"status": "failed", "detail": "未找到发送按钮"}
+
+        # 11. 验证发送结果（弹窗应消失）
+        if not self.verify_action_result("发送添加邀请", timeout=2, should_exist=False):
+            logger.warning("弹窗可能未正常关闭")
+
+        # 12. 关闭搜索，回到消息页面（只按一次Escape）
         self.press_escape()
         time.sleep(0.3)
 
-        # 关闭搜索，回到消息页面
-        self.press_escape()
-        time.sleep(0.3)
-
-        return {"status": "success", "detail": f"[测试模式] 已填写验证消息，未实际发送给 {phone}"}
+        return {"status": "success", "detail": f"已向 {phone} 发送添加邀请"}
 
     def add_contacts_batch(self, phones, verify_msg=None, interval=2):
         """批量通过手机号添加联系人
