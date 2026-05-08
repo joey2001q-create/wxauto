@@ -1032,7 +1032,15 @@ class WXWorkAutomation:
         ax, ay = add_item["screen_pos"]
         logger.info(f"点击'添加'按钮 at ({ax:.0f}, {ay:.0f})")
         self.click(int(ax), int(ay))
-        time.sleep(1)
+        time.sleep(2)  # 增加等待时间，让新弹窗完全覆盖
+
+        # 【修复】点击弹窗标题区域，确保新弹窗在最上层并获得焦点
+        # 新弹窗通常在屏幕中央附近
+        rect = self.get_window_rect()
+        center_x = rect[0] + (rect[2] - rect[0]) // 2
+        center_y = rect[1] + (rect[3] - rect[1]) // 2 - 100  # 偏上一点（标题区域）
+        self.click(center_x, center_y)
+        time.sleep(0.5)
 
         # 7. 等待弹窗出现，确认弹窗标题"发送添加邀请"
         if not self.verify_action_result("发送添加邀请", timeout=3, should_exist=True):
