@@ -953,7 +953,18 @@ class WXWorkAutomation:
 
         lx, ly = lookup_item["screen_pos"]
         self.click(int(lx), int(ly))
-        time.sleep(1.5)
+        time.sleep(2.0)  # 增加等待时间，让右侧联系人详情加载
+
+        # 【修复】点击右侧联系人详情区域，确保加载完整信息
+        # 获取窗口尺寸，点击右侧区域（联系人详情通常在右侧）
+        rect = self.get_window_rect()
+        window_width = rect[2] - rect[0]
+        window_height = rect[3] - rect[1]
+        # 点击窗口右侧中间位置（联系人详情区域）
+        right_x = rect[0] + int(window_width * 0.75)
+        right_y = rect[1] + int(window_height * 0.5)
+        self.click(right_x, right_y)
+        time.sleep(1.0)  # 等待右侧详情刷新
 
         # 5.1 检查是否出现"用户不存在"提示
         not_exist_hints = ["该用户不存在", "无法找到该用户", "用户不存在"]
