@@ -907,9 +907,12 @@ class WXWorkAutomation:
         Returns:
             dict: {"status": "success"|"already_friend"|"not_found"|"failed", "detail": str}
         """
-        # 1. 确保在前台并回到消息页面（不强制bring_to_front，避免黑屏）
-        # self.bring_to_front()  # 暂时禁用，可能导致窗口黑屏
-        time.sleep(0.3)
+        """
+        # 1. 确保企业微信窗口在前台
+        self.bring_to_front()
+        time.sleep(0.5)
+
+        # 回到消息页面
         try:
             self.click_text("消息")
             time.sleep(0.5)
