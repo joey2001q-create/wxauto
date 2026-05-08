@@ -3,8 +3,12 @@
 """
 from setuptools import setup, find_packages
 
-with open("README.md", "r", encoding="utf-8") as fh:
-    long_description = fh.read()
+# 尝试读取 README.md，如果不存在则使用默认描述
+try:
+    with open("README.md", "r", encoding="utf-8") as fh:
+        long_description = fh.read()
+except FileNotFoundError:
+    long_description = "企业微信自动化工具 - 基于OCR+SendInput"
 
 setup(
     name="wxauto",
